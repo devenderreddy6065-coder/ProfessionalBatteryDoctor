@@ -1,4 +1,3 @@
-
 package com.batterydoctor.pro
 
 import android.content.BroadcastReceiver
@@ -29,7 +28,7 @@ import kotlin.math.abs
 data class BatterySnapshot(
     val level: Int = 0,
     val tempC: Float = 0f,
-    val voltageV: Float = 0f,
+    val voltageV: Float? = null,
     val currentMa: Float? = null,
     val powerW: Float? = null,
     val status: String = "Unknown",
@@ -100,13 +99,18 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = bgColor
                 ) {
+
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            .windowInsetsPadding(
+                                WindowInsets.safeDrawing
+                            )
                             .verticalScroll(
                                 rememberScrollState()
                             )
                             .padding(18.dp),
+
                         verticalArrangement =
                             Arrangement.spacedBy(14.dp)
                     ) {
@@ -143,6 +147,7 @@ class MainActivity : ComponentActivity() {
                                 horizontalAlignment =
                                     Alignment.CenterHorizontally
                             ) {
+
                                 Text(
                                     "BATTERY LEVEL",
                                     color = Color.LightGray,
@@ -189,7 +194,9 @@ class MainActivity : ComponentActivity() {
 
                             Metric(
                                 "Battery Voltage",
-                                "${fmt(data.voltageV)} V",
+                                data.voltageV?.let {
+                                    "${fmt(it)} V"
+                                } ?: "Unavailable",
                                 Modifier.weight(1f)
                             )
                         }
@@ -277,15 +284,18 @@ class MainActivity : ComponentActivity() {
 
                         Section("BATTERY SAFETY")
 
-                        val temperatureWarning =
-                            data.tempC >= 45f
-
                         Info(
                             "Temperature Alert",
-                            if (temperatureWarning)
-                                "High temperature"
-                            else
-                                "No high-temperature alert"
+                            when {
+                                data.tempC >= 50f ->
+                                    "High temperature"
+
+                                data.tempC >= 45f ->
+                                    "Temperature elevated"
+
+                                else ->
+                                    "No high-temperature alert"
+                            }
                         )
 
                         Info(
@@ -293,21 +303,16 @@ class MainActivity : ComponentActivity() {
                             data.health
                         )
 
-                        Text(
-                            "IMPORTANT INFORMATION",
-                            color = accentColor,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Section("IMPORTANT INFORMATION")
 
                         Text(
-                            "Charging power is estimated from battery voltage and reported battery current. It is not a direct USB charger input measurement.",
+                            "Charging power is estimated from battery voltage and reported battery current. It is not direct USB charger input power.",
                             color = Color(0xFFB8C3D4),
                             fontSize = 12.sp
                         )
 
                         Text(
-                            "Android does not reliably expose the exact charger model, cable quality or proprietary SUPERVOOC negotiation to ordinary apps.",
+                            "Android does not reliably expose the exact charger model, cable quality or proprietary SUPERVOOC negotiation.",
                             color = Color(0xFFB8C3D4),
                             fontSize = 12.sp
                         )
@@ -319,7 +324,7 @@ class MainActivity : ComponentActivity() {
                         )
 
                         Text(
-                            "Professional Battery Doctor V1.1",
+                            "Professional Battery Doctor V1.2",
                             color = Color.Gray,
                             fontSize = 11.sp,
                             modifier = Modifier.align(
@@ -336,12 +341,10 @@ class MainActivity : ComponentActivity() {
         intent: Intent?
     ): BatterySnapshot {
 
-        val batteryIntent = intent ?: registerReceiver(
+        val i = intent ?: registerReceiver(
             null,
             IntentFilter(Intent.ACTION_BATTERY_CHANGED)
         )
-
-        val i = batteryIntent
 
         val level = i?.getIntExtra(
             BatteryManager.EXTRA_LEVEL, 0
@@ -363,11 +366,15 @@ class MainActivity : ComponentActivity() {
             ) ?: 0
         ) / 10f
 
-        val voltage = (
-            i?.getIntExtra(
-                BatteryManager.EXTRA_VOLTAGE, 0
-            ) ?: 0
-        ) / 1000f
+        val voltageRaw = i?.getIntExtra(
+            BatteryManager.EXTRA_VOLTAGE, 0
+        ) ?: 0
+
+        val voltage = if (voltageRaw > 0) {
+            voltageRaw / 1000f
+        } else {
+            null
+        }
 
         val statusCode = i?.getIntExtra(
             BatteryManager.EXTRA_STATUS, -1
@@ -434,28 +441,39 @@ class MainActivity : ComponentActivity() {
             BatteryManager.EXTRA_TECHNOLOGY
         ) ?: "Unknown"
 
-        val batteryManager =
-            getSystemService(BATTERY_SERVICE) as BatteryManager
+        val bm = getSystemService(
+            BATTERY_SERVICE
+        ) as BatteryManager
 
-        val current = try {
-            val microAmps = batteryManager.getIntProperty(
+        val currentMicroAmps = try {
+
+            val now = bm.getIntProperty(
                 BatteryManager.BATTERY_PROPERTY_CURRENT_NOW
             )
 
-            if (microAmps == Int.MIN_VALUE ||
-                microAmps == 0
-            ) {
-                null
+            if (now != Int.MIN_VALUE && now != 0) {
+                now
             } else {
-                abs(microAmps.toFloat() / 1000f)
+                bm.getIntProperty(
+                    BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE
+                )
             }
 
         } catch (_: Exception) {
+            Int.MIN_VALUE
+        }
+
+        val current = if (
+            currentMicroAmps != Int.MIN_VALUE &&
+            currentMicroAmps != 0
+        ) {
+            abs(currentMicroAmps.toFloat() / 1000f)
+        } else {
             null
         }
 
         val power = if (
-            current != null && voltage > 0f
+            current != null && voltage != null
         ) {
             current * voltage / 1000f
         } else {
