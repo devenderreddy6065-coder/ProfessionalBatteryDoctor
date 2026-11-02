@@ -256,7 +256,7 @@ class MainActivity : ComponentActivity() {
                         Metric(
                             "Current Capacity",
                             data.currentCapacityMah?.let {
-                                "${fmt(it)} mAh"
+                                "${fmt(it)} mAh (${data.level}%)"
                             } ?: "Unavailable",
                             Modifier.fillMaxWidth()
                         )
