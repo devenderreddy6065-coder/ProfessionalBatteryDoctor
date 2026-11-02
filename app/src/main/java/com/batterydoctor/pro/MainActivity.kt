@@ -446,11 +446,25 @@ private fun readBatterySysfsValue(
             BatteryManager.EXTRA_VOLTAGE, 0
         ) ?: 0
 
-        val voltage = if (voltageRaw > 0) {
-            voltageRaw / 1000f
-        } else {
-            null
-        }
+        // VOLTAGE READING ADD-ON
+val sysfsVoltage = readBatterySysfsValue(
+    "/sys/class/power_supply/battery/voltage_now",
+    "/sys/class/power_supply/battery/voltage_avg"
+)
+
+val voltage = when {
+    voltageRaw > 0 ->
+        voltageRaw / 1000f
+
+    sysfsVoltage != null && sysfsVoltage > 100000 ->
+        sysfsVoltage / 1000000f
+
+    sysfsVoltage != null && sysfsVoltage > 1000 ->
+        sysfsVoltage / 1000f
+
+    else -> null
+}
+// END VOLTAGE READING ADD-ON
 
         val statusCode = i?.getIntExtra(
             BatteryManager.EXTRA_STATUS, -1
