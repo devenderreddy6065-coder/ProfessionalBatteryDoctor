@@ -53,23 +53,24 @@ private val cardColor = Color(0xFF151F30)
 private val accentColor = Color(0xFF63D9B5)
 
 class MainActivity : ComponentActivity() {
-// BATTERY SENSOR ADD-ON
-private fun readBatterySysfsValue(
-    vararg paths: String
-): Long? {
-    for (path in paths) {
-        try {
-            val value = File(path).readText().trim().toLongOrNull()
-            if (value != null && value != 0L) {
-                return value
+
+    // BATTERY SENSOR ADD-ON
+    private fun readBatterySysfsValue(
+        vararg paths: String
+    ): Long? {
+        for (path in paths) {
+            try {
+                val value = File(path).readText().trim().toLongOrNull()
+                if (value != null && value != 0L) {
+                    return value
+                }
+            } catch (_: Exception) {
+                // Try next available path
             }
-        } catch (_: Exception) {
-            // Try next available path
         }
+        return null
     }
-    return null
-}
-// END BATTERY SENSOR ADD-ON
+    // END BATTERY SENSOR ADD-ON
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -554,23 +555,36 @@ val voltage = when {
         }
         // END CURRENT CAPACITY ADD-ON
 
+        // CURRENT READING ADD-ON
+        // Prefer the battery sysfs current value when the device exposes it.
+        val sysfsCurrent = readBatterySysfsValue(
+            "/sys/class/power_supply/battery/current_now",
+            "/sys/class/power_supply/battery/current_avg"
+        )
+
         val currentMicroAmps = try {
-
-            val now = bm.getIntProperty(
-                BatteryManager.BATTERY_PROPERTY_CURRENT_NOW
-            )
-
-            if (now != Int.MIN_VALUE && now != 0) {
-                now
+            if (sysfsCurrent != null) {
+                sysfsCurrent.coerceIn(
+                    Int.MIN_VALUE.toLong(),
+                    Int.MAX_VALUE.toLong()
+                ).toInt()
             } else {
-                bm.getIntProperty(
-                    BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE
+                val now = bm.getIntProperty(
+                    BatteryManager.BATTERY_PROPERTY_CURRENT_NOW
                 )
-            }
 
+                if (now != Int.MIN_VALUE && now != 0) {
+                    now
+                } else {
+                    bm.getIntProperty(
+                        BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE
+                    )
+                }
+            }
         } catch (_: Exception) {
             Int.MIN_VALUE
         }
+        // END CURRENT READING ADD-ON
 
         val current = if (
             currentMicroAmps != Int.MIN_VALUE &&
