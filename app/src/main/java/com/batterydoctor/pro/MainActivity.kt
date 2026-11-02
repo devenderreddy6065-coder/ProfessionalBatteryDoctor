@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -20,6 +21,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -36,6 +39,7 @@ data class BatterySnapshot(
     val voltageV: Float? = null,
     val currentMa: Float? = null,
     val powerW: Float? = null,
+    val currentCapacityMah: Float? = null,
     val status: String = "Unknown",
     val source: String = "Unknown",
     val health: String = "Unknown",
@@ -138,23 +142,28 @@ class MainActivity : ComponentActivity() {
                             Arrangement.spacedBy(14.dp)
                     ) {
 
+                        // BATTERY DOCTOR PRO LOGO ADD-ON
+                        Image(
+                            painter = painterResource(
+                                id = R.drawable.battery_doctor_pro
+                            ),
+                            contentDescription =
+                                "Battery Doctor Pro Logo",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(240.dp),
+                            contentScale = ContentScale.Fit
+                        )
+                        // END LOGO ADD-ON
+
                         Text(
-                            "BATTERY DOCTOR",
+                            "LIVE BATTERY & CHARGING DIAGNOSTICS",
                             color = accentColor,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-
-                        Text(
-                            "Professional",
-                            color = Color.White,
-                            fontSize = 28.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-
-                        Text(
-                            "Live Battery & Charging Diagnostics",
-                            color = Color.LightGray
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.align(
+                                Alignment.CenterHorizontally
+                            )
                         )
 
                         Card(
@@ -240,6 +249,18 @@ class MainActivity : ComponentActivity() {
                                 Modifier.weight(1f)
                             )
                         }
+
+                        // CURRENT CAPACITY ADD-ON
+                        Section("BATTERY CAPACITY")
+
+                        Metric(
+                            "Current Capacity",
+                            data.currentCapacityMah?.let {
+                                "${fmt(it)} mAh"
+                            } ?: "Unavailable",
+                            Modifier.fillMaxWidth()
+                        )
+                        // END CURRENT CAPACITY ADD-ON
 
                         Section("LIVE CHARGING")
 
@@ -341,6 +362,12 @@ class MainActivity : ComponentActivity() {
                         )
 
                         Text(
+                            "Current Capacity is the remaining charge reported by the phone. It is not the battery design capacity.",
+                            color = Color(0xFFB8C3D4),
+                            fontSize = 12.sp
+                        )
+
+                        Text(
                             "Battery health status is supplied by the phone. It is not a measured battery capacity percentage.",
                             color = Color(0xFFB8C3D4),
                             fontSize = 12.sp
@@ -356,7 +383,7 @@ class MainActivity : ComponentActivity() {
                         )
 
                         Text(
-                            "Professional Battery Doctor V1.3",
+                            "Battery Doctor Pro V1.4",
                             color = Color.Gray,
                             fontSize = 11.sp,
                             modifier = Modifier.align(
@@ -477,6 +504,25 @@ class MainActivity : ComponentActivity() {
             BATTERY_SERVICE
         ) as BatteryManager
 
+        // CURRENT CAPACITY ADD-ON
+        val chargeCounter = try {
+            bm.getIntProperty(
+                BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER
+            )
+        } catch (_: Exception) {
+            Int.MIN_VALUE
+        }
+
+        val currentCapacity = if (
+            chargeCounter != Int.MIN_VALUE &&
+            chargeCounter > 0
+        ) {
+            chargeCounter / 1000f
+        } else {
+            null
+        }
+        // END CURRENT CAPACITY ADD-ON
+
         val currentMicroAmps = try {
 
             val now = bm.getIntProperty(
@@ -518,6 +564,7 @@ class MainActivity : ComponentActivity() {
             voltageV = voltage,
             currentMa = current,
             powerW = power,
+            currentCapacityMah = currentCapacity,
             status = status,
             source = source,
             health = health,
