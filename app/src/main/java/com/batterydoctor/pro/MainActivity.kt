@@ -666,23 +666,6 @@ val voltage = when {
         }
         // END CURRENT / POWER VALIDATION ADD-ON
 
-        val current = if (
-            currentMicroAmps != Int.MIN_VALUE &&
-            currentMicroAmps != 0
-        ) {
-            abs(currentMicroAmps.toFloat() / 1000f)
-        } else {
-            null
-        }
-
-        val power = if (
-            current != null && voltage != null
-        ) {
-            current * voltage / 1000f
-        } else {
-            null
-        }
-
         return BatterySnapshot(
             level = percentage,
             tempC = temperature,
