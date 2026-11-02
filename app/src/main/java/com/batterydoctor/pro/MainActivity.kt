@@ -24,8 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import kotlinx.coroutines.Job
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import java.util.Locale
@@ -96,50 +95,18 @@ class MainActivity : ComponentActivity() {
             }
 
             // V1.3 AUTO REFRESH ADD-ON
-            DisposableEffect(lifecycle) {
+            LaunchedEffect(Unit) {
 
-                val scope = rememberCoroutineScope()
-                var refreshJob: Job? = null
+                lifecycle.repeatOnLifecycle(
+                    Lifecycle.State.RESUMED
+                ) {
 
-                val observer = LifecycleEventObserver {
-                        _, event ->
+                    while (isActive) {
 
-                    when (event) {
+                        delay(2000)
 
-                        Lifecycle.Event.ON_RESUME -> {
-
-                            if (refreshJob?.isActive != true) {
-
-                                refreshJob = scope.launch {
-
-                                    while (isActive) {
-
-                                        delay(2000)
-
-                                        data = readSnapshot(null)
-                                    }
-                                }
-                            }
-                        }
-
-                        Lifecycle.Event.ON_PAUSE -> {
-
-                            refreshJob?.cancel()
-                            refreshJob = null
-                        }
-
-                        else -> Unit
+                        data = readSnapshot(null)
                     }
-                }
-
-                lifecycle.addObserver(observer)
-
-                onDispose {
-
-                    lifecycle.removeObserver(observer)
-
-                    refreshJob?.cancel()
-                    refreshJob = null
                 }
             }
             // END AUTO REFRESH ADD-ON
