@@ -53,7 +53,23 @@ private val cardColor = Color(0xFF151F30)
 private val accentColor = Color(0xFF63D9B5)
 
 class MainActivity : ComponentActivity() {
-
+// BATTERY SENSOR ADD-ON
+private fun readBatterySysfsValue(
+    vararg paths: String
+): Long? {
+    for (path in paths) {
+        try {
+            val value = File(path).readText().trim().toLongOrNull()
+            if (value != null && value != 0L) {
+                return value
+            }
+        } catch (_: Exception) {
+            // Try next available path
+        }
+    }
+    return null
+}
+// END BATTERY SENSOR ADD-ON
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
