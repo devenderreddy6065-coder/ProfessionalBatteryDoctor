@@ -32,6 +32,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import java.util.Locale
 import kotlin.math.abs
+import java.io.File
 
 data class BatterySnapshot(
     val level: Int = 0,
