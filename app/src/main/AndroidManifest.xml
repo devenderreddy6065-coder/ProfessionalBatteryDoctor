@@ -2,7 +2,7 @@
 
     <application
         android:allowBackup="true"
-        android:label="Professional Battery Doctor"
+        android:label="Battery Doctor Pro"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:supportsRtl="true">
 
