@@ -71,6 +71,60 @@ class MainActivity : ComponentActivity() {
         return null
     }
     // END BATTERY SENSOR ADD-ON
+
+    // V1.5.7 SUPERVOOC DETECTION ADD-ON
+    private fun readSuperVoocStatus(): String {
+        val propertyNames = listOf(
+            "sys.oplus.chg_type",
+            "sys.oplus.vooc_charger",
+            "persist.sys.oplus.vooc",
+            "ro.oplusvooc.support"
+        )
+
+        for (name in propertyNames) {
+            try {
+                val systemProperties = Class.forName("android.os.SystemProperties")
+                val getMethod = systemProperties.getMethod(
+                    "get",
+                    String::class.java,
+                    String::class.java
+                )
+                val value = getMethod.invoke(null, name, "") as? String ?: ""
+                val normalized = value.lowercase(Locale.US)
+                if ("supervooc" in normalized || "vooc" in normalized) {
+                    return "Detected by ColorOS property"
+                }
+            } catch (_: Exception) {
+                // Hidden system properties may be blocked for normal apps.
+            }
+        }
+
+        val candidatePaths = listOf(
+            "/sys/class/oplus_chg/voocphy/voocphy_status",
+            "/sys/class/oplus_chg/voocphy/vooc_chg_type",
+            "/sys/class/oplus_chg/voocphy/fastchg_status",
+            "/sys/class/oplus_chg/charger/vooc_chg_type",
+            "/sys/class/oplus_chg/charger/fastchg_status",
+            "/sys/class/power_supply/usb/real_type",
+            "/sys/class/power_supply/battery/charge_type"
+        )
+
+        for (path in candidatePaths) {
+            try {
+                val value = File(path).readText().trim()
+                val normalized = value.lowercase(Locale.US)
+                if ("supervooc" in normalized || "vooc" in normalized) {
+                    return "Detected by ColorOS vendor interface"
+                }
+            } catch (_: Exception) {
+                // Vendor nodes may be private or unreadable to ordinary apps.
+            }
+        }
+
+        return "Not exposed to this app by ColorOS"
+    }
+    // END SUPERVOOC DETECTION ADD-ON
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -334,10 +388,21 @@ class MainActivity : ComponentActivity() {
                             "Not exposed by Android"
                         )
 
+                        // V1.5.7 SUPERVOOC / 67W ADD-ON
                         Info(
-                            "SUPERVOOC",
-                            "Protocol not verified"
+                            "SUPERVOOC Status",
+                            readSuperVoocStatus()
                         )
+
+                        Info(
+                            "Device Charging Capability",
+                            if (Build.MODEL.contains("CPH2603", ignoreCase = true)) {
+                                "Up to 67W SUPERVOOC"
+                            } else {
+                                "Not confirmed for this model"
+                            }
+                        )
+                        // END SUPERVOOC / 67W ADD-ON
 
                         Info(
                             "Cable Status",
@@ -368,13 +433,13 @@ class MainActivity : ComponentActivity() {
                         Section("IMPORTANT INFORMATION")
 
                         Text(
-                            "Charging power is estimated from battery voltage and reported battery current. It is not direct USB charger input power.",
+                            "Estimated Power is battery-side only and is shown only when valid voltage and current readings are available. It is not direct USB charger input power.",
                             color = Color(0xFFB8C3D4),
                             fontSize = 12.sp
                         )
 
                         Text(
-                            "Android does not reliably expose the exact charger model, cable quality or proprietary SUPERVOOC negotiation.",
+                            "SUPERVOOC detection is shown only when an accessible ColorOS property or vendor interface explicitly reports VOOC/SUPERVOOC. Some OPPO system interfaces may be private to normal apps.",
                             color = Color(0xFFB8C3D4),
                             fontSize = 12.sp
                         )
@@ -401,7 +466,7 @@ class MainActivity : ComponentActivity() {
                         )
 
                         Text(
-                            "Battery Doctor Pro V1.4",
+                            "Battery Doctor Pro V1.5.7",
                             color = Color.Gray,
                             fontSize = 11.sp,
                             modifier = Modifier.align(
@@ -555,36 +620,51 @@ val voltage = when {
         }
         // END CURRENT CAPACITY ADD-ON
 
-        // CURRENT READING ADD-ON
-        // Prefer the battery sysfs current value when the device exposes it.
-        val sysfsCurrent = readBatterySysfsValue(
-            "/sys/class/power_supply/battery/current_now",
-            "/sys/class/power_supply/battery/current_avg"
-        )
-
+        // V1.5.7 CURRENT / POWER VALIDATION ADD-ON
+        // Use Android's documented BatteryManager current property.
+        // Avoid sysfs current nodes because their units vary by vendor/device.
         val currentMicroAmps = try {
-            if (sysfsCurrent != null) {
-                sysfsCurrent.coerceIn(
-                    Int.MIN_VALUE.toLong(),
-                    Int.MAX_VALUE.toLong()
-                ).toInt()
+            val now = bm.getIntProperty(
+                BatteryManager.BATTERY_PROPERTY_CURRENT_NOW
+            )
+            if (now != Int.MIN_VALUE && now != 0) {
+                now
             } else {
-                val now = bm.getIntProperty(
-                    BatteryManager.BATTERY_PROPERTY_CURRENT_NOW
+                bm.getIntProperty(
+                    BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE
                 )
-
-                if (now != Int.MIN_VALUE && now != 0) {
-                    now
-                } else {
-                    bm.getIntProperty(
-                        BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE
-                    )
-                }
             }
         } catch (_: Exception) {
             Int.MIN_VALUE
         }
-        // END CURRENT READING ADD-ON
+
+        val rawCurrentMa = if (
+            currentMicroAmps != Int.MIN_VALUE &&
+            currentMicroAmps != 0
+        ) {
+            abs(currentMicroAmps.toFloat() / 1000f)
+        } else {
+            null
+        }
+
+        // A reading around 1 mA while charging is not a credible live
+        // charging-current measurement, so show Unavailable instead.
+        val current = rawCurrentMa?.takeIf {
+            plugged == 0 || it >= 100f
+        }
+
+        // Battery-side estimated power; do not calculate from missing/zero data.
+        val power = if (
+            plugged != 0 &&
+            current != null &&
+            voltage != null &&
+            voltage > 0f
+        ) {
+            (current * voltage / 1000f).takeIf { it > 0f }
+        } else {
+            null
+        }
+        // END CURRENT / POWER VALIDATION ADD-ON
 
         val current = if (
             currentMicroAmps != Int.MIN_VALUE &&
