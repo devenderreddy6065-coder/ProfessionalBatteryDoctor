@@ -1,3 +1,4 @@
+
 package com.batterydoctor.pro
 
 import android.content.BroadcastReceiver
@@ -22,6 +23,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import java.util.Locale
 import kotlin.math.abs
 
@@ -54,6 +60,7 @@ class MainActivity : ComponentActivity() {
                 mutableStateOf(initial)
             }
 
+            // BATTERY BROADCAST RECEIVER
             DisposableEffect(Unit) {
 
                 val receiver = object : BroadcastReceiver() {
@@ -87,6 +94,55 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+
+            // V1.3 AUTO REFRESH ADD-ON
+            DisposableEffect(lifecycle) {
+
+                val scope = rememberCoroutineScope()
+                var refreshJob: Job? = null
+
+                val observer = LifecycleEventObserver {
+                        _, event ->
+
+                    when (event) {
+
+                        Lifecycle.Event.ON_RESUME -> {
+
+                            if (refreshJob?.isActive != true) {
+
+                                refreshJob = scope.launch {
+
+                                    while (isActive) {
+
+                                        delay(2000)
+
+                                        data = readSnapshot(null)
+                                    }
+                                }
+                            }
+                        }
+
+                        Lifecycle.Event.ON_PAUSE -> {
+
+                            refreshJob?.cancel()
+                            refreshJob = null
+                        }
+
+                        else -> Unit
+                    }
+                }
+
+                lifecycle.addObserver(observer)
+
+                onDispose {
+
+                    lifecycle.removeObserver(observer)
+
+                    refreshJob?.cancel()
+                    refreshJob = null
+                }
+            }
+            // END AUTO REFRESH ADD-ON
 
             MaterialTheme(
                 colorScheme = darkColorScheme(
@@ -324,7 +380,16 @@ class MainActivity : ComponentActivity() {
                         )
 
                         Text(
-                            "Professional Battery Doctor V1.2",
+                            "Auto Refresh: Every 2 Seconds",
+                            color = accentColor,
+                            fontSize = 11.sp,
+                            modifier = Modifier.align(
+                                Alignment.CenterHorizontally
+                            )
+                        )
+
+                        Text(
+                            "Professional Battery Doctor V1.3",
                             color = Color.Gray,
                             fontSize = 11.sp,
                             modifier = Modifier.align(
