@@ -1,4 +1,3 @@
-
 package com.batterydoctor.pro
 
 import android.content.BroadcastReceiver
@@ -299,7 +298,7 @@ class MainActivity : ComponentActivity() {
                             Metric(
                                 "Battery Voltage",
                                 data.voltageV?.let {
-                                    "${fmt(it)} V"
+                                    "${fmtVoltage(it)} V"
                                 } ?: "Unavailable",
                                 Modifier.weight(1f)
                             )
@@ -564,7 +563,7 @@ class MainActivity : ComponentActivity() {
             BatteryManager.EXTRA_PLUGGED, 0
         ) ?: 0
 
- val source = when (plugged) {
+        val source = when (plugged) {
             BatteryManager.BATTERY_PLUGGED_AC ->
                 "AC Adapter"
 
@@ -766,6 +765,16 @@ fun fmt(value: Float): String {
     return String.format(
         Locale.US,
         "%.2f",
+        value
+    )
+}
+
+// Voltage uses 3 decimal places so small non-zero readings
+// do not appear as 0.00 V after rounding.
+fun fmtVoltage(value: Float): String {
+    return String.format(
+        Locale.US,
+        "%.3f",
         value
     )
 }
