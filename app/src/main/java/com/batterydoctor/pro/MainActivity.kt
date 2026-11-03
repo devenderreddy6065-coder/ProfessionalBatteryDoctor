@@ -41,6 +41,7 @@ data class BatterySnapshot(
     val currentMa: Float? = null,
     val powerW: Float? = null,
     val currentCapacityMah: Float? = null,
+    val cycleCount: Int? = null,
     val status: String = "Unknown",
     val source: String = "Unknown",
     val health: String = "Unknown",
@@ -406,6 +407,25 @@ class MainActivity : ComponentActivity() {
                         )
                         // END CURRENT CAPACITY ADD-ON
 
+                        // V1.6.2 BATTERY LIFETIME & CHARGE CYCLES
+                        Section("BATTERY LIFETIME")
+
+                        Metric(
+                            "Charge Cycles",
+                            data.cycleCount?.let {
+                                "$it cycles"
+                            } ?: "Unavailable",
+                            Modifier.fillMaxWidth()
+                        )
+
+                        Text(
+                            "Cycle count is provided by the phone hardware. " +
+                                "If it is not available, this value remains Unavailable.",
+                            color = Color(0xFFB8C3D4),
+                            fontSize = 12.sp
+                        )
+                        // END BATTERY LIFETIME & CHARGE CYCLES
+
                         Section("LIVE CHARGING")
 
                         Row(
@@ -547,7 +567,7 @@ class MainActivity : ComponentActivity() {
                         )
 
                         Text(
-                            "Battery Doctor Pro V1.6.1",
+                            "Battery Doctor Pro V1.6.2",
                             color = Color.Gray,
                             fontSize = 11.sp,
                             modifier = Modifier.align(
@@ -720,6 +740,22 @@ class MainActivity : ComponentActivity() {
         }
         // END CURRENT CAPACITY ADD-ON
 
+        // V1.6.2 BATTERY CYCLE COUNT
+        // Android exposes this property on API 34+. Some manufacturers do not
+        // provide a value; in that case keep it null and display Unavailable.
+        val cycleCount = if (Build.VERSION.SDK_INT >= 34) {
+            try {
+                bm.getIntProperty(
+                    BatteryManager.BATTERY_PROPERTY_CYCLE_COUNT
+                ).takeIf { it >= 0 }
+            } catch (_: Exception) {
+                null
+            }
+        } else {
+            null
+        }
+        // END BATTERY CYCLE COUNT
+
         // V1.5.8 CURRENT / POWER FIX
         // Android reports current in microamps. Some vendor kernels expose
         // a tiny/incorrect CURRENT_NOW value, so try CURRENT_AVERAGE and
@@ -805,6 +841,7 @@ class MainActivity : ComponentActivity() {
             currentMa = current,
             powerW = power,
             currentCapacityMah = currentCapacity,
+            cycleCount = cycleCount,
             status = status,
             source = source,
             health = health,
