@@ -741,13 +741,14 @@ class MainActivity : ComponentActivity() {
         // END CURRENT CAPACITY ADD-ON
 
         // V1.6.2 BATTERY CYCLE COUNT
-        // Android exposes this property on API 34+. Some manufacturers do not
-        // provide a value; in that case keep it null and display Unavailable.
+        // Android 14+ exposes cycle count through ACTION_BATTERY_CHANGED,
+        // not through a BatteryManager.BATTERY_PROPERTY_* constant.
         val cycleCount = if (Build.VERSION.SDK_INT >= 34) {
             try {
-                bm.getIntProperty(
-                    BatteryManager.BATTERY_PROPERTY_CYCLE_COUNT
-                ).takeIf { it >= 0 }
+                i?.getIntExtra(
+                    BatteryManager.EXTRA_CYCLE_COUNT,
+                    -1
+                )?.takeIf { it >= 0 }
             } catch (_: Exception) {
                 null
             }
