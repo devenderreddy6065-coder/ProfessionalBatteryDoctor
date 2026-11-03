@@ -1,3 +1,4 @@
+
 package com.batterydoctor.pro
 
 import android.content.BroadcastReceiver
@@ -530,13 +531,13 @@ class MainActivity : ComponentActivity() {
             else -> null
         }
 
-        // Show the reported voltage as-is, but treat a missing/zero reading
-        // as unavailable instead of displaying 0.00 V.
-        val voltage = when {
-            voltageRaw > 0 -> broadcastVoltageV
-            sysfsVoltageV != null && sysfsVoltageV > 0f -> sysfsVoltageV
-            else -> null
-        }
+        // Battery voltage should normally be in a plausible single-cell
+        // Li-ion range. Reject tiny/incorrectly-scaled values such as 0.004 V.
+        // Prefer a valid Android broadcast value, then try readable sysfs values.
+        val voltage = listOfNotNull(
+            broadcastVoltageV.takeIf { voltageRaw > 0 },
+            sysfsVoltageV
+        ).firstOrNull { it in 2.5f..5.5f }
         // END VOLTAGE READING ADD-ON
 
         val statusCode = i?.getIntExtra(
