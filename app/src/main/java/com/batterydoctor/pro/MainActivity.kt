@@ -466,7 +466,7 @@ class MainActivity : ComponentActivity() {
                         )
 
                         Text(
-                            "Battery Doctor Pro V1.5.7",
+                            "Battery Doctor Pro V1.5.8",
                             color = Color.Gray,
                             fontSize = 11.sp,
                             modifier = Modifier.align(
@@ -518,8 +518,14 @@ class MainActivity : ComponentActivity() {
         val sysfsVoltage = readBatterySysfsValue(
             "/sys/class/power_supply/battery/voltage_now",
             "/sys/class/power_supply/battery/voltage_avg",
+            "/sys/class/power_supply/battery/voltage_ocv",
             "/sys/class/power_supply/Battery/voltage_now",
-            "/sys/class/power_supply/bms/voltage_now"
+            "/sys/class/power_supply/Battery/voltage_avg",
+            "/sys/class/power_supply/bms/voltage_now",
+            "/sys/class/power_supply/bms/voltage_avg",
+            "/sys/class/power_supply/bms/voltage_ocv",
+            "/sys/class/power_supply/usb/voltage_now",
+            "/sys/class/power_supply/main/voltage_now"
         )
 
         val broadcastVoltageV = voltageRaw / 1000f
@@ -628,46 +634,76 @@ class MainActivity : ComponentActivity() {
         }
         // END CURRENT CAPACITY ADD-ON
 
-        // V1.5.7 CURRENT / POWER VALIDATION ADD-ON
-        // Use Android's documented BatteryManager current property.
-        // Avoid sysfs current nodes because their units vary by vendor/device.
-        val currentMicroAmps = try {
-            val now = bm.getIntProperty(
-                BatteryManager.BATTERY_PROPERTY_CURRENT_NOW
-            )
-            if (now != Int.MIN_VALUE && now != 0) {
-                now
-            } else {
-                bm.getIntProperty(
-                    BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE
-                )
-            }
+        // V1.5.8 CURRENT / POWER FIX
+        // Android reports current in microamps. Some vendor kernels expose
+        // a tiny/incorrect CURRENT_NOW value, so try CURRENT_AVERAGE and
+        // readable battery sysfs current nodes as fallbacks.
+        val androidCurrentNow = try {
+            bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
         } catch (_: Exception) {
             Int.MIN_VALUE
         }
 
-        // Display the Android-reported current as-is (microamps -> milliamps).
-        // A zero/missing reading is treated as unavailable, not shown as 0.00 mA.
-        val current = if (
-            currentMicroAmps != Int.MIN_VALUE && currentMicroAmps != 0
-        ) {
-            currentMicroAmps.toFloat() / 1000f
-        } else {
-            null
+        val androidCurrentAverage = try {
+            bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE)
+        } catch (_: Exception) {
+            Int.MIN_VALUE
         }
 
-        // Battery-side estimated power; do not calculate from missing/zero data.
+        val sysfsCurrentMicroAmps = readBatterySysfsValue(
+            "/sys/class/power_supply/battery/current_now",
+            "/sys/class/power_supply/battery/current_avg",
+            "/sys/class/power_supply/Battery/current_now",
+            "/sys/class/power_supply/Battery/current_avg",
+            "/sys/class/power_supply/bms/current_now",
+            "/sys/class/power_supply/bms/current_avg"
+        )?.takeIf { abs(it) in 10_000L..10_000_000L }
+
+        // Prefer a meaningful Android reading. If it is suspiciously small
+        // (<10 mA), prefer a valid sysfs reading when the device exposes one.
+        val androidCurrent = listOf(
+            androidCurrentNow,
+            androidCurrentAverage
+        ).firstOrNull {
+            it != Int.MIN_VALUE && it != 0 && abs(it.toLong()) <= 10_000_000L
+        }
+
+        val selectedCurrentMicroAmps = when {
+            androidCurrent != null &&
+                abs(androidCurrent.toLong()) >= 10_000L -> androidCurrent.toLong()
+            sysfsCurrentMicroAmps != null -> sysfsCurrentMicroAmps
+            androidCurrent != null -> androidCurrent.toLong()
+            else -> null
+        }
+
+        // Normalize the sign for a clear user-facing display:
+        // charging = positive, discharging = negative.
+        val current = selectedCurrentMicroAmps?.let { raw ->
+            val magnitudeMa = abs(raw).toFloat() / 1000f
+            when (statusCode) {
+                BatteryManager.BATTERY_STATUS_CHARGING -> magnitudeMa
+                BatteryManager.BATTERY_STATUS_DISCHARGING -> -magnitudeMa
+                BatteryManager.BATTERY_STATUS_FULL -> 0f
+                else -> if (plugged != 0) magnitudeMa else -magnitudeMa
+            }
+        }
+
+        // Battery-side estimated power. Use current magnitude so a vendor's
+        // negative charging-current sign cannot suppress the watt reading.
         val power = if (
-            plugged != 0 &&
+            (plugged != 0 || statusCode == BatteryManager.BATTERY_STATUS_CHARGING) &&
             current != null &&
             voltage != null &&
-            voltage > 0f
+            voltage > 0f &&
+            abs(current) > 0f
         ) {
-            (current * voltage / 1000f).takeIf { it > 0f }
+            (abs(current) * voltage / 1000f).takeIf {
+                it.isFinite() && it > 0f
+            }
         } else {
             null
         }
-        // END CURRENT / POWER VALIDATION ADD-ON
+        // END CURRENT / POWER FIX
 
         return BatterySnapshot(
             level = percentage,
