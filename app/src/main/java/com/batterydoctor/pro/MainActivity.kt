@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -42,6 +43,7 @@ data class BatterySnapshot(
     val powerW: Float? = null,
     val currentCapacityMah: Float? = null,
     val cycleCount: Int? = null,
+    val cycleCountDebug: String = "Unknown",
     val status: String = "Unknown",
     val source: String = "Unknown",
     val health: String = "Unknown",
@@ -407,24 +409,25 @@ class MainActivity : ComponentActivity() {
                         )
                         // END CURRENT CAPACITY ADD-ON
 
-                        // V1.6.2 BATTERY LIFETIME & CHARGE CYCLES
+                        // V1.6.3 BATTERY LIFETIME & CYCLE COUNT VERIFICATION
                         Section("BATTERY LIFETIME")
 
                         Metric(
                             "Charge Cycles",
-                            data.cycleCount?.let {
-                                "$it cycles"
-                            } ?: "Unavailable",
+                            data.cycleCount?.let { "$it cycles" } ?: "Unavailable",
                             Modifier.fillMaxWidth()
                         )
 
+                        Info("Cycle Count Debug", data.cycleCountDebug)
+
                         Text(
-                            "Cycle count is provided by the phone hardware. " +
-                                "If it is not available, this value remains Unavailable.",
+                            "Cycle count is read from Android's battery broadcast. " +
+                                "A reported 0 is shown as received; the app cannot independently " +
+                                "confirm the phone manufacturer's counter.",
                             color = Color(0xFFB8C3D4),
                             fontSize = 12.sp
                         )
-                        // END BATTERY LIFETIME & CHARGE CYCLES
+                        // END BATTERY LIFETIME & CYCLE COUNT VERIFICATION
 
                         Section("LIVE CHARGING")
 
@@ -501,8 +504,8 @@ class MainActivity : ComponentActivity() {
                             "Not independently detectable"
                         )
 
-                        // V1.6.0 BATTERY SENSOR DEBUG
-                        Section("BATTERY SENSOR DEBUG (V1.6.1)")
+                        // V1.6.3 BATTERY SENSOR DEBUG
+                        Section("BATTERY SENSOR DEBUG (V1.6.3)")
                         Info("Android raw voltage", data.debugBroadcastVoltage)
                         Info("Sysfs voltage scan", data.debugSysfsVoltage)
                         Info("CURRENT_NOW raw", data.debugCurrentNow)
@@ -531,7 +534,7 @@ class MainActivity : ComponentActivity() {
                             data.health
                         )
 
-                        Section("IMPORTANT INFORMATION")
+                   Section("IMPORTANT INFORMATION")
 
                         Text(
                             "Estimated Power is battery-side only and is shown only when valid voltage and current readings are available. It is not direct USB charger input power.",
@@ -567,7 +570,7 @@ class MainActivity : ComponentActivity() {
                         )
 
                         Text(
-                            "Battery Doctor Pro V1.6.2",
+                            "Battery Doctor Pro V1.6.3",
                             color = Color.Gray,
                             fontSize = 11.sp,
                             modifier = Modifier.align(
@@ -740,22 +743,35 @@ class MainActivity : ComponentActivity() {
         }
         // END CURRENT CAPACITY ADD-ON
 
-        // V1.6.2 BATTERY CYCLE COUNT
-        // Android 14+ exposes cycle count through ACTION_BATTERY_CHANGED,
-        // not through a BatteryManager.BATTERY_PROPERTY_* constant.
-        val cycleCount = if (Build.VERSION.SDK_INT >= 34) {
+        // V1.6.3 BATTERY CYCLE COUNT + SOURCE DIAGNOSTIC
+        // EXTRA_CYCLE_COUNT is available from API 34. Check hasExtra()
+        // so a missing extra is never mistaken for a real zero count.
+        val cycleCountExtraPresent = try {
+            Build.VERSION.SDK_INT >= 34 &&
+                i?.hasExtra(BatteryManager.EXTRA_CYCLE_COUNT) == true
+        } catch (_: Exception) {
+            false
+        }
+
+        val cycleCountRaw = if (cycleCountExtraPresent) {
             try {
-                i?.getIntExtra(
-                    BatteryManager.EXTRA_CYCLE_COUNT,
-                    -1
-                )?.takeIf { it >= 0 }
+                i?.getIntExtra(BatteryManager.EXTRA_CYCLE_COUNT, -1) ?: -1
             } catch (_: Exception) {
-                null
+                -1
             }
         } else {
-            null
+            -1
         }
-        // END BATTERY CYCLE COUNT
+
+        val cycleCount = cycleCountRaw.takeIf { it >= 0 }
+        val cycleCountDebug = when {
+            Build.VERSION.SDK_INT < 34 -> "Requires Android 14+ (API 34)"
+            !cycleCountExtraPresent -> "EXTRA_CYCLE_COUNT not supplied by Android"
+            cycleCountRaw < 0 -> "Extra present, but value is invalid ($cycleCountRaw)"
+            cycleCountRaw == 0 -> "Android supplied 0; manufacturer counter not independently verified"
+            else -> "Android supplied $cycleCountRaw cycles"
+        }
+        // END BATTERY CYCLE COUNT + SOURCE DIAGNOSTIC
 
         // V1.5.8 CURRENT / POWER FIX
         // Android reports current in microamps. Some vendor kernels expose
@@ -843,6 +859,7 @@ class MainActivity : ComponentActivity() {
             powerW = power,
             currentCapacityMah = currentCapacity,
             cycleCount = cycleCount,
+            cycleCountDebug = cycleCountDebug,
             status = status,
             source = source,
             health = health,
@@ -916,20 +933,23 @@ fun Info(
                 RoundedCornerShape(12.dp)
             )
             .padding(14.dp),
-        horizontalArrangement =
-            Arrangement.SpaceBetween
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
-            label,
+            text = label,
+            modifier = Modifier.weight(0.9f),
             color = Color.LightGray,
             fontSize = 13.sp
         )
 
         Text(
-            value,
+            text = value,
+            modifier = Modifier.weight(1.1f),
             color = Color.White,
             fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.End
         )
     }
 }
