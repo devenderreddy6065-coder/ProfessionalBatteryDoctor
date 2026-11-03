@@ -45,7 +45,12 @@ data class BatterySnapshot(
     val source: String = "Unknown",
     val health: String = "Unknown",
     val technology: String = "Unknown",
-    val plugged: Int = 0
+    val plugged: Int = 0,
+    val debugBroadcastVoltage: String = "Unknown",
+    val debugSysfsVoltage: String = "Unknown",
+    val debugCurrentNow: String = "Unknown",
+    val debugCurrentAverage: String = "Unknown",
+    val debugSensorAccess: String = "Unknown"
 )
 
 private val bgColor = Color(0xFF0B1220)
@@ -443,6 +448,15 @@ class MainActivity : ComponentActivity() {
                             "Not independently detectable"
                         )
 
+                        // V1.6.0 BATTERY SENSOR DEBUG
+                        Section("BATTERY SENSOR DEBUG (V1.6.0)")
+                        Info("Android raw voltage", data.debugBroadcastVoltage)
+                        Info("Sysfs voltage scan", data.debugSysfsVoltage)
+                        Info("CURRENT_NOW raw", data.debugCurrentNow)
+                        Info("CURRENT_AVERAGE raw", data.debugCurrentAverage)
+                        Info("Sensor file access", data.debugSensorAccess)
+                        // END BATTERY SENSOR DEBUG
+
                         Section("BATTERY SAFETY")
 
                         Info(
@@ -500,7 +514,7 @@ class MainActivity : ComponentActivity() {
                         )
 
                         Text(
-                            "Battery Doctor Pro V1.5.9",
+                            "Battery Doctor Pro V1.6.0",
                             color = Color.Gray,
                             fontSize = 11.sp,
                             modifier = Modifier.align(
@@ -545,11 +559,12 @@ class MainActivity : ComponentActivity() {
         val voltageRaw = i?.getIntExtra(
             BatteryManager.EXTRA_VOLTAGE, 0
         ) ?: 0
+        val debugBroadcastVoltage = "$voltageRaw mV"
 
         // VOLTAGE READING ADD-ON
         // Android EXTRA_VOLTAGE is in millivolts. Reject implausible
         // tiny values so they are not displayed as 0.00 V.
-        val sysfsVoltage = readBatterySysfsValue(
+        val voltagePaths = listOf(
             "/sys/class/power_supply/battery/voltage_now",
             "/sys/class/power_supply/battery/voltage_avg",
             "/sys/class/power_supply/battery/voltage_ocv",
@@ -561,6 +576,19 @@ class MainActivity : ComponentActivity() {
             "/sys/class/power_supply/usb/voltage_now",
             "/sys/class/power_supply/main/voltage_now"
         )
+        val sysfsVoltage = readBatterySysfsValue(*voltagePaths.toTypedArray())
+        val debugSysfsVoltage = voltagePaths.joinToString(" | ") { path ->
+            val file = File(path)
+            when {
+                !file.exists() -> "${file.name}:missing"
+                !file.canRead() -> "${file.name}:blocked"
+                else -> try {
+                    "${file.name}:${file.readText().trim().take(24)}"
+                } catch (_: Exception) {
+                    "${file.name}:read-error"
+                }
+            }
+        }
 
         val broadcastVoltageV = voltageRaw / 1000f
         val sysfsVoltageV = when {
@@ -685,6 +713,13 @@ class MainActivity : ComponentActivity() {
         } catch (_: Exception) {
             Int.MIN_VALUE
         }
+        val debugCurrentNow = if (androidCurrentNow == Int.MIN_VALUE) "INT_MIN / unavailable" else "$androidCurrentNow µA"
+        val debugCurrentAverage = if (androidCurrentAverage == Int.MIN_VALUE) "INT_MIN / unavailable" else "$androidCurrentAverage µA"
+        val debugSensorAccess = if (voltagePaths.any { File(it).canRead() }) {
+            "At least one candidate readable"
+        } else {
+            "No candidate voltage file readable by app"
+        }
 
         val sysfsCurrentMicroAmps = readBatterySysfsValue(
             "/sys/class/power_supply/battery/current_now",
@@ -754,7 +789,12 @@ class MainActivity : ComponentActivity() {
             source = source,
             health = health,
             technology = technology,
-            plugged = plugged
+            plugged = plugged,
+            debugBroadcastVoltage = debugBroadcastVoltage,
+            debugSysfsVoltage = debugSysfsVoltage,
+            debugCurrentNow = debugCurrentNow,
+            debugCurrentAverage = debugCurrentAverage,
+            debugSensorAccess = debugSensorAccess
         )
     }
 }
