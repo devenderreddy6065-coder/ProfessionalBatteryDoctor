@@ -71,6 +71,40 @@ class MainActivity : ComponentActivity() {
         return null
     }
     // END BATTERY SENSOR ADD-ON
+    // V1.5.9 POWER-SUPPLY VOLTAGE SCAN ADD-ON
+    // Scan readable battery-related power_supply entries. Some devices use
+    // vendor-specific directory names rather than /battery.
+    private fun readAnyPowerSupplyVoltageV(): Float? {
+        val root = File("/sys/class/power_supply")
+        val directories = try {
+            root.listFiles()?.toList() ?: emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+
+        val batteryNameHints = listOf("battery", "bms", "fuel", "fg", "main")
+        for (directory in directories) {
+            val directoryName = directory.name.lowercase(Locale.US)
+            if (batteryNameHints.none { it in directoryName }) continue
+
+            for (nodeName in listOf("voltage_now", "voltage_avg", "voltage_ocv")) {
+                try {
+                    val raw = File(directory, nodeName).readText().trim().toLongOrNull()
+                        ?: continue
+                    val volts = when {
+                        kotlin.math.abs(raw) >= 100_000L -> raw / 1_000_000f
+                        kotlin.math.abs(raw) >= 1_000L -> raw / 1_000f
+                        else -> continue
+                    }
+                    if (volts in 2.5f..5.5f) return volts
+                } catch (_: Exception) {
+                    // Continue scanning other readable battery nodes.
+                }
+            }
+        }
+        return null
+    }
+    // END V1.5.9 POWER-SUPPLY VOLTAGE SCAN ADD-ON
 
     // V1.5.7 SUPERVOOC DETECTION ADD-ON
     private fun readSuperVoocStatus(): String {
@@ -466,7 +500,7 @@ class MainActivity : ComponentActivity() {
                         )
 
                         Text(
-                            "Battery Doctor Pro V1.5.8",
+                            "Battery Doctor Pro V1.5.9",
                             color = Color.Gray,
                             fontSize = 11.sp,
                             modifier = Modifier.align(
@@ -540,9 +574,11 @@ class MainActivity : ComponentActivity() {
         // Battery voltage should normally be in a plausible single-cell
         // Li-ion range. Reject tiny/incorrectly-scaled values such as 0.004 V.
         // Prefer a valid Android broadcast value, then try readable sysfs values.
+        val scannedVoltageV = readAnyPowerSupplyVoltageV()
         val voltage = listOfNotNull(
             broadcastVoltageV.takeIf { voltageRaw > 0 },
-            sysfsVoltageV
+            sysfsVoltageV,
+            scannedVoltageV
         ).firstOrNull { it in 2.5f..5.5f }
         // END VOLTAGE READING ADD-ON
 
@@ -690,8 +726,10 @@ class MainActivity : ComponentActivity() {
 
         // Battery-side estimated power. Use current magnitude so a vendor's
         // negative charging-current sign cannot suppress the watt reading.
+        // Show battery-side power while charging OR discharging.
+        // The absolute current magnitude is used; the sign remains visible
+        // separately in the Current field to indicate charge/discharge direction.
         val power = if (
-            (plugged != 0 || statusCode == BatteryManager.BATTERY_STATUS_CHARGING) &&
             current != null &&
             voltage != null &&
             voltage > 0f &&
