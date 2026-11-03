@@ -513,24 +513,32 @@ class MainActivity : ComponentActivity() {
         ) ?: 0
 
         // VOLTAGE READING ADD-ON
-val sysfsVoltage = readBatterySysfsValue(
-    "/sys/class/power_supply/battery/voltage_now",
-    "/sys/class/power_supply/battery/voltage_avg"
-)
+        // Android EXTRA_VOLTAGE is in millivolts. Reject implausible
+        // tiny values so they are not displayed as 0.00 V.
+        val sysfsVoltage = readBatterySysfsValue(
+            "/sys/class/power_supply/battery/voltage_now",
+            "/sys/class/power_supply/battery/voltage_avg",
+            "/sys/class/power_supply/Battery/voltage_now",
+            "/sys/class/power_supply/bms/voltage_now"
+        )
 
-val voltage = when {
-    voltageRaw > 0 ->
-        voltageRaw / 1000f
+        val broadcastVoltageV = voltageRaw / 1000f
+        val sysfsVoltageV = when {
+            sysfsVoltage != null && sysfsVoltage > 100000 ->
+                sysfsVoltage / 1000000f
+            sysfsVoltage != null && sysfsVoltage > 1000 ->
+                sysfsVoltage / 1000f
+            else -> null
+        }
 
-    sysfsVoltage != null && sysfsVoltage > 100000 ->
-        sysfsVoltage / 1000000f
-
-    sysfsVoltage != null && sysfsVoltage > 1000 ->
-        sysfsVoltage / 1000f
-
-    else -> null
-}
-// END VOLTAGE READING ADD-ON
+        // Show the reported voltage as-is, but treat a missing/zero reading
+        // as unavailable instead of displaying 0.00 V.
+        val voltage = when {
+            voltageRaw > 0 -> broadcastVoltageV
+            sysfsVoltageV != null && sysfsVoltageV > 0f -> sysfsVoltageV
+            else -> null
+        }
+        // END VOLTAGE READING ADD-ON
 
         val statusCode = i?.getIntExtra(
             BatteryManager.EXTRA_STATUS, -1
@@ -556,7 +564,7 @@ val voltage = when {
             BatteryManager.EXTRA_PLUGGED, 0
         ) ?: 0
 
-        val source = when (plugged) {
+ val source = when (plugged) {
             BatteryManager.BATTERY_PLUGGED_AC ->
                 "AC Adapter"
 
@@ -638,19 +646,14 @@ val voltage = when {
             Int.MIN_VALUE
         }
 
-        val rawCurrentMa = if (
-            currentMicroAmps != Int.MIN_VALUE &&
-            currentMicroAmps != 0
+        // Display the Android-reported current as-is (microamps -> milliamps).
+        // A zero/missing reading is treated as unavailable, not shown as 0.00 mA.
+        val current = if (
+            currentMicroAmps != Int.MIN_VALUE && currentMicroAmps != 0
         ) {
-            abs(currentMicroAmps.toFloat() / 1000f)
+            currentMicroAmps.toFloat() / 1000f
         } else {
             null
-        }
-
-        // A reading around 1 mA while charging is not a credible live
-        // charging-current measurement, so show Unavailable instead.
-        val current = rawCurrentMa?.takeIf {
-            plugged == 0 || it >= 100f
         }
 
         // Battery-side estimated power; do not calculate from missing/zero data.
