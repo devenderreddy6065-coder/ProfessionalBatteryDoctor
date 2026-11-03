@@ -76,40 +76,73 @@ class MainActivity : ComponentActivity() {
         return null
     }
     // END BATTERY SENSOR ADD-ON
-    // V1.5.9 POWER-SUPPLY VOLTAGE SCAN ADD-ON
-    // Scan readable battery-related power_supply entries. Some devices use
-    // vendor-specific directory names rather than /battery.
+    // V1.6.1 ADVANCED BATTERY VOLTAGE SCAN
+    // Only read battery-side nodes. USB/AC voltage is charger input voltage,
+    // not battery voltage, so those directories are deliberately excluded.
     private fun readAnyPowerSupplyVoltageV(): Float? {
         val root = File("/sys/class/power_supply")
         val directories = try {
-            root.listFiles()?.toList() ?: emptyList()
+            root.listFiles()?.filter { it.isDirectory } ?: emptyList()
         } catch (_: Exception) {
             emptyList()
         }
 
-        val batteryNameHints = listOf("battery", "bms", "fuel", "fg", "main")
+        val hints = listOf("battery", "bms", "fuel", "fg", "main", "cell")
         for (directory in directories) {
-            val directoryName = directory.name.lowercase(Locale.US)
-            if (batteryNameHints.none { it in directoryName }) continue
+            val name = directory.name.lowercase(Locale.US)
+            if (hints.none { it in name }) continue
 
-            for (nodeName in listOf("voltage_now", "voltage_avg", "voltage_ocv")) {
+            for (node in listOf("voltage_now", "voltage_avg", "voltage_ocv")) {
                 try {
-                    val raw = File(directory, nodeName).readText().trim().toLongOrNull()
+                    val raw = File(directory, node).readText().trim().toLongOrNull()
                         ?: continue
                     val volts = when {
-                        kotlin.math.abs(raw) >= 100_000L -> raw / 1_000_000f
-                        kotlin.math.abs(raw) >= 1_000L -> raw / 1_000f
+                        abs(raw) >= 100_000L -> raw / 1_000_000f
+                        abs(raw) >= 1_000L -> raw / 1_000f
                         else -> continue
                     }
                     if (volts in 2.5f..5.5f) return volts
                 } catch (_: Exception) {
-                    // Continue scanning other readable battery nodes.
+                    // Permission denied or node unavailable: try next node.
                 }
             }
         }
         return null
     }
-    // END V1.5.9 POWER-SUPPLY VOLTAGE SCAN ADD-ON
+
+    private fun describePowerSupplyVoltageNodes(): String {
+        val root = File("/sys/class/power_supply")
+        val directories = try {
+            root.listFiles()?.filter { it.isDirectory } ?: emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+        if (directories.isEmpty()) return "power_supply: unavailable or blocked"
+
+        val hints = listOf("battery", "bms", "fuel", "fg", "main", "cell")
+        val output = mutableListOf<String>()
+        for (directory in directories) {
+            val name = directory.name.lowercase(Locale.US)
+            if (hints.none { it in name }) continue
+            for (node in listOf("voltage_now", "voltage_avg", "voltage_ocv")) {
+                val file = File(directory, node)
+                val result = when {
+                    !file.exists() -> "missing"
+                    !file.canRead() -> "blocked"
+                    else -> try {
+                        file.readText().trim().take(18)
+                    } catch (_: Exception) {
+                        "read-error"
+                    }
+                }
+                output.add("${directory.name}/$node=$result")
+            }
+        }
+        return output.take(18).joinToString(" | ").ifEmpty {
+            "No battery-related power_supply folders found"
+        }
+    }
+    // END V1.6.1 ADVANCED BATTERY VOLTAGE SCAN
 
     // V1.5.7 SUPERVOOC DETECTION ADD-ON
     private fun readSuperVoocStatus(): String {
@@ -449,7 +482,7 @@ class MainActivity : ComponentActivity() {
                         )
 
                         // V1.6.0 BATTERY SENSOR DEBUG
-                        Section("BATTERY SENSOR DEBUG (V1.6.0)")
+                        Section("BATTERY SENSOR DEBUG (V1.6.1)")
                         Info("Android raw voltage", data.debugBroadcastVoltage)
                         Info("Sysfs voltage scan", data.debugSysfsVoltage)
                         Info("CURRENT_NOW raw", data.debugCurrentNow)
@@ -514,7 +547,7 @@ class MainActivity : ComponentActivity() {
                         )
 
                         Text(
-                            "Battery Doctor Pro V1.6.0",
+                            "Battery Doctor Pro V1.6.1",
                             color = Color.Gray,
                             fontSize = 11.sp,
                             modifier = Modifier.align(
@@ -577,18 +610,7 @@ class MainActivity : ComponentActivity() {
             "/sys/class/power_supply/main/voltage_now"
         )
         val sysfsVoltage = readBatterySysfsValue(*voltagePaths.toTypedArray())
-        val debugSysfsVoltage = voltagePaths.joinToString(" | ") { path ->
-            val file = File(path)
-            when {
-                !file.exists() -> "${file.name}:missing"
-                !file.canRead() -> "${file.name}:blocked"
-                else -> try {
-                    "${file.name}:${file.readText().trim().take(24)}"
-                } catch (_: Exception) {
-                    "${file.name}:read-error"
-                }
-            }
-        }
+        val debugSysfsVoltage = describePowerSupplyVoltageNodes()
 
         val broadcastVoltageV = voltageRaw / 1000f
         val sysfsVoltageV = when {
@@ -764,15 +786,13 @@ class MainActivity : ComponentActivity() {
         // Show battery-side power while charging OR discharging.
         // The absolute current magnitude is used; the sign remains visible
         // separately in the Current field to indicate charge/discharge direction.
+        // V1.6.1: show watts ONLY when both real sensor readings are valid.
+        // Never substitute nominal/design voltage or an assumed value.
         val power = if (
-            current != null &&
-            voltage != null &&
-            voltage > 0f &&
-            abs(current) > 0f
+            voltage != null && voltage in 2.5f..5.5f &&
+            current != null && current.isFinite() && abs(current) > 0f
         ) {
-            (abs(current) * voltage / 1000f).takeIf {
-                it.isFinite() && it > 0f
-            }
+            (voltage * abs(current) / 1000f).takeIf { it.isFinite() && it > 0f }
         } else {
             null
         }
